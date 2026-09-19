@@ -1,0 +1,5 @@
+Quarterly strategy briefing
+
+This demonstration document is distributed to authorized recipients only.
+The rendered content is the same for every recipient. A recipient-specific,
+zero-width forensic watermark is added only after successful decryption.
