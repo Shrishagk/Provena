@@ -7,3 +7,5 @@ keys/ledger_nodes.json
 data/*.sqlite3
 data/*.pqe.json
 data/*_copy.txt
+data/artifacts/
+data/ledger-reset-required

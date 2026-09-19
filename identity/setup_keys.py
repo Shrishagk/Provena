@@ -15,6 +15,13 @@ def _write(path: Path, value: dict) -> None:
 def bootstrap(base: Path, recipients: list[str]) -> None:
     keys = base / "keys"
     keys.mkdir(parents=True, exist_ok=True)
+    # A new keyring starts a new trust domain.  Entries signed by the previous
+    # recipient/node keys must not be retained as part of this new ledger. The
+    # startup script performs that reset after it has stopped old node processes
+    # (Windows does not allow deleting a SQLite database that they still hold).
+    reset_marker = base / "data" / "ledger-reset-required"
+    reset_marker.parent.mkdir(parents=True, exist_ok=True)
+    reset_marker.write_text("Regenerated demo identities require a fresh ledger.\n", encoding="utf-8")
     root_public, root_secret = sign_keygen()
     _write(keys / "org_root_private.json", {"algorithm": "ML-DSA-65", "secret_key": b64(root_secret)})
     records: dict[str, dict[str, str]] = {}
@@ -37,7 +44,7 @@ def bootstrap(base: Path, recipients: list[str]) -> None:
         _write(keys / f"{node_id}.private.json", {"algorithm": "ML-DSA-65", "secret_key": b64(secret)})
         nodes[node_id] = {"sign_public_key": b64(public)}
     _write(keys / "ledger_nodes.json", {"format": "pq-forensic-ledger-nodes-v1", "nodes": nodes})
-    print(f"Created {len(recipients)} recipient identities and 3 node identities in {keys}")
+    print(f"Created {len(recipients)} recipient identities and 3 node identities in {keys}; start_ledger_nodes.ps1 will reset the demo ledger state.")
 
 
 def main() -> None:

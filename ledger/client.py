@@ -10,13 +10,20 @@ from ledger.chain import entry_hash
 DEFAULT_NODES = ["http://127.0.0.1:8001", "http://127.0.0.1:8002", "http://127.0.0.1:8003"]
 
 
+class LedgerRequestError(ConnectionError):
+    """A ledger endpoint could be reached but rejected the request."""
+
+
 def _request(url: str, method: str = "GET", body: dict | None = None) -> dict:
     data = json.dumps(body).encode() if body is not None else None
     request = Request(url, data=data, method=method, headers={"Content-Type": "application/json"})
     try:
         with urlopen(request, timeout=4) as response:
             return json.loads(response.read().decode())
-    except (HTTPError, URLError, TimeoutError) as exc:
+    except HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise LedgerRequestError(f"{url}: HTTP {exc.code}: {detail}") from exc
+    except (URLError, TimeoutError) as exc:
         raise ConnectionError(f"{url}: {exc}") from exc
 
 
@@ -44,13 +51,16 @@ def append_quorum(record: dict, recipient_signature: str, urls: list[str] = DEFA
              "prev_hash": prev_hash, "node_cosignatures": {reply["node_id"]: reply["node_signature"] for _, reply in matching}}
     entry["entry_hash"] = entry_hash(entry)
     committed = []
+    commit_errors = []
     for url, _ in health:
         try:
             _request(url + "/commit", "POST", entry)
             committed.append(url)
-        except ConnectionError: pass
+        except ConnectionError as exc:
+            commit_errors.append(str(exc))
     if len(committed) < 2:
-        raise RuntimeError("quorum signed but fewer than two replicas committed")
+        detail = "; ".join(commit_errors) or "no replica acknowledged the commit"
+        raise RuntimeError(f"quorum signed but fewer than two replicas committed: {detail}")
     return {"entry": entry, "committed_nodes": committed}
 
 

@@ -1,5 +1,6 @@
 cryptography>=46
 fastapi>=0.134
+python-multipart>=0.0.20
 uvicorn>=0.41
 kyber-py>=1.2
 dilithium-py>=1.4
