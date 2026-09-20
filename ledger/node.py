@@ -47,8 +47,9 @@ def main() -> None:
     parser.add_argument("--node", required=True, choices=["node1", "node2", "node3"])
     parser.add_argument("--port", required=True, type=int)
     parser.add_argument("--base", default=".")
+    parser.add_argument("--host", default="127.0.0.1", help="bind address; keep loopback for the single-host demo")
     args = parser.parse_args()
-    uvicorn.run(create_app(load_node(Path(args.base).resolve(), args.node)), host="127.0.0.1", port=args.port)
+    uvicorn.run(create_app(load_node(Path(args.base).resolve(), args.node)), host=args.host, port=args.port)
 
 
 if __name__ == "__main__": main()

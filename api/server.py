@@ -1,8 +1,10 @@
 """Local FastAPI gateway consumed by the Next.js control-plane UI.
 
-The gateway deliberately keeps private recipient keys on this air-gapped host.
-For production, replace this demo key loading with device-local or HSM-backed
-signing and decryption operations.
+This *demo* gateway loads recipient private keys from its local filesystem in
+order to make the browser workflow runnable. A signature made through this
+endpoint proves only that the gateway-held key signed the record; it does not
+provide recipient non-repudiation. The recipient-side CLI is the supported
+workflow when a recipient controls their own key material.
 """
 from __future__ import annotations
 
@@ -31,6 +33,13 @@ KEYS = BASE / "keys"
 ARTIFACTS = BASE / "data" / "artifacts"
 ARTIFACTS.mkdir(parents=True, exist_ok=True)
 NODE_IDS = ("node1", "node2", "node3")
+TRUST_BOUNDARY = {
+    "mode": "gateway-custody-demo",
+    "recipient_private_keys": "loaded by the gateway from its local filesystem",
+    "recipient_non_repudiation": False,
+    "replica_deployment": "three local services on one host by default",
+    "independent_administration": False,
+}
 
 app = FastAPI(title="Offline Forensic Watermarking Gateway", version="1.0")
 origins = [item.strip() for item in os.environ.get(
@@ -80,7 +89,13 @@ def _ledger_status() -> dict:
 
 @app.get("/api/v1/health")
 def health() -> dict:
-    return {"service": "forensic-watermarking-gateway", "ledger": _ledger_status()}
+    return {"service": "forensic-watermarking-gateway", "ledger": _ledger_status(), "trust_boundary": TRUST_BOUNDARY}
+
+
+@app.get("/api/v1/system/trust-boundary")
+def trust_boundary() -> dict:
+    """Return explicit, machine-readable demo assurance limits for the UI."""
+    return TRUST_BOUNDARY
 
 
 @app.get("/api/v1/recipients")
@@ -119,7 +134,10 @@ async def decrypt(envelope: UploadFile = File(...), recipient_id: str = Form(...
     except UnicodeDecodeError as exc:
         raise _http_error(422, "prototype watermarking supports UTF-8 text documents only") from exc
     except ValueError as exc:
-        raise _http_error(403, "recipient is not authorized for this encrypted package") from exc
+        raise _http_error(
+            422,
+            "encrypted package cannot be authenticated for this recipient; it may be corrupt or was created before recipient keys were regenerated. Encrypt the source document again.",
+        ) from exc
     token = os.urandom(16)
     record = {"doc_hash": package["ciphertext_sha256"], "recipient_id": recipient_id,
               "watermark_session_id": token.hex(), "timestamp": datetime.now(timezone.utc).isoformat()}
@@ -131,7 +149,8 @@ async def decrypt(envelope: UploadFile = File(...), recipient_id: str = Form(...
     artifact_id, output = _artifact_path(".txt")
     output.write_text(embed(plaintext, token), encoding="utf-8")
     return {"watermarked_copy_url": f"/api/v1/download/{artifact_id}", "watermark_session_id": token.hex(),
-            "ledger_entry_hash": committed["entry"]["entry_hash"], "committed_nodes": committed["committed_nodes"]}
+            "ledger_entry_hash": committed["entry"]["entry_hash"], "committed_nodes": committed["committed_nodes"],
+            "assurance": "gateway-custody-demo"}
 
 
 @app.post("/api/v1/leak-trace")
@@ -141,13 +160,14 @@ async def trace(leaked_copy: UploadFile = File(...), envelope: UploadFile = File
     if not token:
         return {"keyring_signature_valid": False, "recipient_ml_dsa_signature_valid": False,
                 "document_ciphertext_binding_valid": False, "ledger_chain_and_quorum_valid": False,
-                "verdict": "NO WATERMARK FOUND"}
+                "verdict": "NO WATERMARK FOUND", "assurance": "gateway-custody-demo"}
     matches = lookup_all(token)
     hashes = Counter(entry["entry_hash"] for _, entry in matches)
     if not hashes or hashes.most_common(1)[0][1] < 2:
         return {"watermark_session_id": token, "keyring_signature_valid": False,
                 "recipient_ml_dsa_signature_valid": False, "document_ciphertext_binding_valid": False,
-                "ledger_chain_and_quorum_valid": False, "verdict": "ATTRIBUTION NOT VERIFIED"}
+                "ledger_chain_and_quorum_valid": False, "verdict": "ATTRIBUTION NOT VERIFIED",
+                "assurance": "gateway-custody-demo"}
     entry_hash = hashes.most_common(1)[0][0]
     entry = next(item for _, item in matches if item["entry_hash"] == entry_hash)
     keyring = load_verified_keyring(KEYS / "keyring.json")
@@ -161,7 +181,8 @@ async def trace(leaked_copy: UploadFile = File(...), envelope: UploadFile = File
             "ledger_entry_hash": entry_hash, "keyring_signature_valid": True,
             "recipient_ml_dsa_signature_valid": signature_valid, "document_ciphertext_binding_valid": binding_valid,
             "ledger_chain_and_quorum_valid": ledger_valid,
-            "verdict": "ATTRIBUTION VERIFIED" if verified else "ATTRIBUTION NOT VERIFIED"}
+            "verdict": "ATTRIBUTION VERIFIED" if verified else "ATTRIBUTION NOT VERIFIED",
+            "assurance": "gateway-custody-demo"}
 
 
 @app.get("/api/v1/ledger/status")

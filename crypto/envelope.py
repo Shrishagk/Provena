@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives import hashes
 
@@ -49,7 +50,10 @@ def decrypt_document(envelope: dict, recipient_id: str, kem_secret_key: bytes) -
             unb64(recipient["wrapped_content_key"]), recipient_id.encode())
         return AESGCM(content_key).decrypt(unb64(envelope["content_nonce"]),
             unb64(envelope["ciphertext"]), b"pq-forensic-v1")
-    except (KeyError, ValueError) as exc:
+    # AES-GCM reports an authentication failure as InvalidTag rather than
+    # ValueError.  Treat it as an invalid package/recipient combination so an
+    # untrusted upload can never turn into an unhandled gateway error.
+    except (InvalidTag, KeyError, ValueError) as exc:
         raise ValueError("recipient is not authorized or envelope is malformed") from exc
 
 

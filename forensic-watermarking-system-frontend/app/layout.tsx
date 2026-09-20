@@ -1,10 +1,33 @@
 import type { Metadata, Viewport } from 'next'
+import { IBM_Plex_Mono, IBM_Plex_Sans, Instrument_Serif } from 'next/font/google'
+
 import './globals.css'
+
+const display = Instrument_Serif({
+  subsets: ['latin'],
+  weight: '400',
+  style: ['normal', 'italic'],
+  variable: '--font-instrument',
+  display: 'swap',
+})
+
+const sans = IBM_Plex_Sans({
+  subsets: ['latin'],
+  weight: ['400', '500', '600'],
+  variable: '--font-ibm-sans',
+  display: 'swap',
+})
+
+const mono = IBM_Plex_Mono({
+  subsets: ['latin'],
+  weight: ['400', '500'],
+  variable: '--font-ibm-mono',
+  display: 'swap',
+})
 
 export const metadata: Metadata = {
   title: 'Vaultline | Forensic Watermarking',
   description: 'Offline post-quantum forensic watermarking control plane.',
-  generator: 'v0.app',
   icons: {
     icon: [
       {
@@ -25,11 +48,8 @@ export const metadata: Metadata = {
 }
 
 export const viewport: Viewport = {
-  colorScheme: 'light dark',
-  themeColor: [
-    { media: '(prefers-color-scheme: light)', color: 'white' },
-    { media: '(prefers-color-scheme: dark)', color: 'black' },
-  ],
+  colorScheme: 'dark',
+  themeColor: '#2a2218',
 }
 
 export default function RootLayout({
@@ -38,10 +58,8 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en">
-      <body className="antialiased">
-        {children}
-      </body>
+    <html lang="en" data-scroll-behavior="smooth" className={`${display.variable} ${sans.variable} ${mono.variable}`}>
+      <body className="min-h-screen font-sans antialiased">{children}</body>
     </html>
   )
 }

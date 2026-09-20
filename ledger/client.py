@@ -1,13 +1,16 @@
 """Quorum client for the three local/air-gapped ledger node services."""
 from __future__ import annotations
 import json
+import os
 from collections import Counter
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from ledger.chain import entry_hash
 
 
-DEFAULT_NODES = ["http://127.0.0.1:8001", "http://127.0.0.1:8002", "http://127.0.0.1:8003"]
+DEFAULT_NODES = [url.strip().rstrip("/") for url in os.environ.get(
+    "FORENSIC_LEDGER_NODES", "http://127.0.0.1:8001,http://127.0.0.1:8002,http://127.0.0.1:8003"
+).split(",") if url.strip()]
 
 
 class LedgerRequestError(ConnectionError):

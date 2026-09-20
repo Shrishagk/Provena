@@ -29,6 +29,7 @@ def main() -> None:
               "watermark_session_id": token.hex(), "timestamp": datetime.now(timezone.utc).isoformat()}
     signature = b64(sign(unb64(private["sign_secret_key"]), canonical_json(record)))
     result = append_quorum(record, signature, args.nodes)
+    Path(args.output).parent.mkdir(parents=True, exist_ok=True)
     Path(args.output).write_text(embed(text, token), encoding="utf-8")
     print(json.dumps({"watermarked_copy": args.output, "session_token": token.hex(),
                       "ledger_entry_hash": result["entry"]["entry_hash"], "committed_nodes": result["committed_nodes"]}, indent=2))

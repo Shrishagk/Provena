@@ -1,13 +1,70 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useId, useState } from 'react'
 import { FileText, UploadCloud } from 'lucide-react'
 
-export function UploadZone({ label, file, onFile }: { label: string; file: File | null; onFile: (file: File | null) => void }) {
-  const ref = useRef<HTMLInputElement>(null)
+import { cn } from '@/lib/utils'
+
+export function UploadZone({
+  label,
+  file,
+  onFile,
+}: {
+  label: string
+  file: File | null
+  onFile: (file: File | null) => void
+}) {
+  const inputId = useId()
+  const hintId = useId()
   const [drag, setDrag] = useState(false)
-  return <div onClick={() => ref.current?.click()} onDragOver={(event) => { event.preventDefault(); setDrag(true) }} onDragLeave={() => setDrag(false)} onDrop={(event) => { event.preventDefault(); setDrag(false); onFile(event.dataTransfer.files[0] || null) }} className={`cursor-pointer rounded-xl border border-dashed p-8 text-center transition-colors ${drag ? 'border-cyan-300 bg-cyan-300/10' : 'border-slate-700 bg-[#091625] hover:border-cyan-400/60'}`}>
-    <input ref={ref} type="file" accept=".txt,.json,.pqe" className="hidden" onChange={(event) => onFile(event.target.files?.[0] || null)} />
-    {file ? <><FileText className="mx-auto size-8 text-cyan-300" /><p className="mt-3 text-sm font-medium">{file.name}</p><p className="mt-1 text-xs text-slate-500">{(file.size / 1024).toFixed(1)} KB · Click to replace</p></> : <><UploadCloud className="mx-auto size-8 text-slate-500" /><p className="mt-3 text-sm font-medium">{label}</p><p className="mt-1 text-xs text-slate-500">Drag and drop or browse</p></>}
-  </div>
+
+  return (
+    <div>
+      <input
+        id={inputId}
+        type="file"
+        accept=".txt,.json,.pqe"
+        className="sr-only"
+        aria-describedby={hintId}
+        onChange={(event) => onFile(event.target.files?.[0] || null)}
+      />
+      <label
+        htmlFor={inputId}
+        onDragOver={(event) => {
+          event.preventDefault()
+          setDrag(true)
+        }}
+        onDragLeave={() => setDrag(false)}
+        onDrop={(event) => {
+          event.preventDefault()
+          setDrag(false)
+          onFile(event.dataTransfer.files[0] || null)
+        }}
+        className={cn(
+          'block cursor-pointer rounded-2xl border border-dashed p-8 text-center transition-colors',
+          drag
+            ? 'border-primary bg-primary/10'
+            : 'border-primary/25 bg-black/20 hover:border-accent/50 hover:bg-accent/5',
+        )}
+      >
+        {file ? (
+          <>
+            <FileText className="mx-auto size-8 text-primary" aria-hidden="true" />
+            <p className="mt-3 text-sm font-medium">{file.name}</p>
+            <p id={hintId} className="mt-1 text-xs text-muted-foreground">
+              {(file.size / 1024).toFixed(1)} KB · Click or press Enter to replace
+            </p>
+          </>
+        ) : (
+          <>
+            <UploadCloud className="mx-auto size-8 text-accent" aria-hidden="true" />
+            <p className="mt-3 text-sm font-medium">{label}</p>
+            <p id={hintId} className="mt-1 text-xs text-muted-foreground">
+              Drag and drop, or browse. Accepted: .txt, .json, .pqe
+            </p>
+          </>
+        )}
+      </label>
+    </div>
+  )
 }

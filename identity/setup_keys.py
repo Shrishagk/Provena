@@ -12,9 +12,11 @@ def _write(path: Path, value: dict) -> None:
     path.write_text(json.dumps(value, indent=2, sort_keys=True), encoding="utf-8")
 
 
-def bootstrap(base: Path, recipients: list[str]) -> None:
+def bootstrap(base: Path, recipients: list[str], recipient_key_dir: Path | None = None) -> None:
     keys = base / "keys"
     keys.mkdir(parents=True, exist_ok=True)
+    private_keys = recipient_key_dir or keys
+    private_keys.mkdir(parents=True, exist_ok=True)
     # A new keyring starts a new trust domain.  Entries signed by the previous
     # recipient/node keys must not be retained as part of this new ledger. The
     # startup script performs that reset after it has stopped old node processes
@@ -28,7 +30,7 @@ def bootstrap(base: Path, recipients: list[str]) -> None:
     for recipient_id in recipients:
         kem_public, kem_secret = kem_keygen()
         sign_public, sign_secret = sign_keygen()
-        _write(keys / f"{recipient_id}.private.json", {
+        _write(private_keys / f"{recipient_id}.private.json", {
             "kem_algorithm": "ML-KEM-768", "kem_secret_key": b64(kem_secret),
             "sign_algorithm": "ML-DSA-65", "sign_secret_key": b64(sign_secret),
         })
@@ -44,15 +46,18 @@ def bootstrap(base: Path, recipients: list[str]) -> None:
         _write(keys / f"{node_id}.private.json", {"algorithm": "ML-DSA-65", "secret_key": b64(secret)})
         nodes[node_id] = {"sign_public_key": b64(public)}
     _write(keys / "ledger_nodes.json", {"format": "pq-forensic-ledger-nodes-v1", "nodes": nodes})
-    print(f"Created {len(recipients)} recipient identities and 3 node identities in {keys}; start_ledger_nodes.ps1 will reset the demo ledger state.")
+    location = "the gateway key directory (demo custody)" if recipient_key_dir is None else str(private_keys)
+    print(f"Created {len(recipients)} recipient identities; private recipient keys are in {location}. Created 3 node identities in {keys}; start_ledger_nodes.ps1 will reset the demo ledger state.")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Create offline demo identities")
     parser.add_argument("--base", default=".")
     parser.add_argument("--recipients", nargs="+", default=["alice", "bob", "carol"])
+    parser.add_argument("--recipient-key-dir", help="directory outside the gateway for recipient private keys; default is demo gateway custody")
     args = parser.parse_args()
-    bootstrap(Path(args.base).resolve(), args.recipients)
+    recipient_key_dir = Path(args.recipient_key_dir).resolve() if args.recipient_key_dir else None
+    bootstrap(Path(args.base).resolve(), args.recipients, recipient_key_dir)
 
 
 if __name__ == "__main__":

@@ -2,16 +2,133 @@
 
 import { useState } from 'react'
 import { CheckCircle2, FileCheck2, ScanSearch, XCircle } from 'lucide-react'
-import { AppShell, PageIntro, Panel } from '@/components/app-shell'
+
+import { AppShell, HashText, PageIntro, Panel } from '@/components/app-shell'
+import { Button } from '@/components/ui/button'
 import { UploadZone } from '@/components/upload-zone'
+import { cn } from '@/lib/utils'
 import { downloadJson, traceLeak, type TraceResponse } from '@/lib/api'
 
-const checks: [string, keyof TraceResponse][] = [['Signed keyring valid', 'keyring_signature_valid'], ['ML-DSA recipient signature valid', 'recipient_ml_dsa_signature_valid'], ['Ciphertext binding valid', 'document_ciphertext_binding_valid'], ['2-of-3 ledger quorum valid', 'ledger_chain_and_quorum_valid']]
+const checks: [string, keyof TraceResponse][] = [
+  ['Signed keyring valid', 'keyring_signature_valid'],
+  ['ML-DSA recipient signature valid', 'recipient_ml_dsa_signature_valid'],
+  ['Ciphertext binding valid', 'document_ciphertext_binding_valid'],
+  ['2-of-3 ledger quorum valid', 'ledger_chain_and_quorum_valid'],
+]
 
 export default function TracePage() {
-  const [leaked, setLeaked] = useState<File | null>(null); const [envelope, setEnvelope] = useState<File | null>(null)
-  const [result, setResult] = useState<TraceResponse | null>(null); const [busy, setBusy] = useState(false); const [error, setError] = useState('')
-  async function submit() { if (!leaked || !envelope) return; setBusy(true); setError(''); try { setResult(await traceLeak(leaked, envelope)) } catch (cause) { setError(cause instanceof Error ? cause.message : 'Trace failed.') } finally { setBusy(false) } }
+  const [leaked, setLeaked] = useState<File | null>(null)
+  const [envelope, setEnvelope] = useState<File | null>(null)
+  const [result, setResult] = useState<TraceResponse | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  async function submit() {
+    if (!leaked || !envelope) return
+    setBusy(true)
+    setError('')
+    try {
+      setResult(await traceLeak(leaked, envelope))
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Trace failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const verified = result?.verdict === 'ATTRIBUTION VERIFIED'
-  return <AppShell><PageIntro eyebrow="Forensic investigation" title="Trace a suspected leak" description="Compare a leaked text copy with its original distribution package. The gateway returns a cryptographically verified attribution verdict." /><div className="grid gap-6 lg:grid-cols-2"><Panel title="Evidence intake"><UploadZone label="Drop suspected leaked .txt" file={leaked} onFile={setLeaked} /><div className="my-4 text-center text-xs uppercase tracking-widest text-slate-600">and</div><UploadZone label="Drop original encrypted package" file={envelope} onFile={setEnvelope} /><button onClick={submit} disabled={!leaked || !envelope || busy} className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-cyan-300 px-4 py-3 text-sm font-semibold text-slate-950 disabled:opacity-40"><ScanSearch className="size-4" />{busy ? 'Analyzing…' : 'Trace leak'}</button>{error && <p className="mt-3 text-sm text-rose-300">{error}</p>}</Panel><Panel title="Verification evidence" description="All checks are evaluated by the backend"><div className="flex flex-col gap-3">{checks.map(([label, key]) => { const valid = result?.[key]; return <div key={key} className="flex items-center justify-between rounded-lg border border-slate-800 bg-[#091625] px-4 py-3"><span className="text-sm text-slate-300">{label}</span>{result ? <span className={`inline-flex items-center gap-2 text-xs ${valid ? 'text-emerald-300' : 'text-rose-300'}`}>{valid ? <CheckCircle2 className="size-4" /> : <XCircle className="size-4" />}{valid ? 'Valid' : 'Invalid'}</span> : <span className="text-xs text-slate-600">Pending</span>}</div> })}</div></Panel></div>{result && <Panel title="Attribution result" className="mt-6"><div className={`rounded-lg border p-5 ${verified ? 'border-emerald-400/30 bg-emerald-400/5' : 'border-rose-400/30 bg-rose-400/5'}`}><div className="flex items-center gap-3"><FileCheck2 className={`size-6 ${verified ? 'text-emerald-300' : 'text-rose-300'}`} /><p className="text-xl font-semibold">{result.verdict.replaceAll('ATTRIBUTION ', 'Attribution ').replace('NO WATERMARK FOUND', 'No Watermark Found')}</p></div><div className="mt-6 grid gap-4 text-sm sm:grid-cols-2"><div><p className="text-xs text-slate-500">Recipient ID</p><p className="mt-1 font-mono">{result.recipient_id || '—'}</p></div><div><p className="text-xs text-slate-500">Timestamp</p><p className="mt-1">{result.timestamp || '—'}</p></div><div><p className="text-xs text-slate-500">Watermark session</p><p className="mt-1 font-mono text-cyan-300">{result.watermark_session_id || '—'}</p></div><div><p className="text-xs text-slate-500">Ledger entry hash</p><p className="mt-1 break-all font-mono text-cyan-300">{result.ledger_entry_hash || '—'}</p></div></div><button onClick={() => downloadJson('verification-report.json', result)} className="mt-6 rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-200">Download JSON verification report</button></div></Panel>}</AppShell>
+
+  return (
+    <AppShell>
+      <PageIntro
+        eyebrow="Forensic investigation"
+        title="Trace the copy back to a person."
+        description="Compare a leaked text copy with its original distribution package. The gateway verifies record consistency, but gateway-held signing keys cannot prove recipient action."
+      />
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Panel title="Evidence intake">
+          <UploadZone label="Drop suspected leaked .txt" file={leaked} onFile={setLeaked} />
+          <p className="my-4 text-center font-serif text-sm italic text-accent">and the original package</p>
+          <UploadZone label="Drop original encrypted package" file={envelope} onFile={setEnvelope} />
+          <Button onClick={submit} disabled={!leaked || !envelope || busy} size="lg" className="mt-6">
+            <ScanSearch />
+            {busy ? 'Analyzing…' : 'Trace leak'}
+          </Button>
+          {error ? (
+            <p role="alert" className="mt-3 text-sm text-destructive">
+              {error}
+            </p>
+          ) : null}
+        </Panel>
+
+        <Panel title="Verification evidence" description="All checks are evaluated by the backend; this demo does not provide recipient non-repudiation">
+          <ul className="flex flex-col gap-3">
+            {checks.map(([label, key]) => {
+              const valid = result?.[key]
+              return (
+                <li
+                  key={key}
+                  className="flex items-center justify-between gap-3 rounded-xl border border-white/8 bg-black/20 px-4 py-3"
+                >
+                  <span className="text-sm">{label}</span>
+                  {result ? (
+                    <span className={cn('inline-flex items-center gap-2 text-xs', valid ? 'text-success' : 'text-destructive')}>
+                      {valid ? <CheckCircle2 className="size-4" aria-hidden="true" /> : <XCircle className="size-4" aria-hidden="true" />}
+                      {valid ? 'Valid' : 'Invalid'}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">Pending</span>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        </Panel>
+      </div>
+
+      {result ? (
+        <Panel title="Attribution result" className="mt-6">
+          <div
+            className={cn(
+              'rounded-2xl border p-5',
+              verified ? 'border-success/30 bg-success/8' : 'border-destructive/30 bg-destructive/8',
+            )}
+          >
+            <div className="flex items-center gap-3">
+              <FileCheck2 className={cn('size-7', verified ? 'text-success' : 'text-destructive')} aria-hidden="true" />
+              <p className="font-serif text-2xl">
+                {result.verdict.replaceAll('ATTRIBUTION ', 'Attribution ').replace('NO WATERMARK FOUND', 'No watermark found')}
+              </p>
+            </div>
+            <dl className="mt-6 grid gap-4 text-sm sm:grid-cols-2">
+              <div>
+                <dt className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Recipient ID</dt>
+                <dd className="mt-1 font-mono">{result.recipient_id || '—'}</dd>
+              </div>
+              <div>
+                <dt className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Timestamp</dt>
+                <dd className="mt-1">{result.timestamp || '—'}</dd>
+              </div>
+              <div>
+                <dt className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Watermark session</dt>
+                <dd className="mt-1">
+                  <HashText value={result.watermark_session_id || '—'} />
+                </dd>
+              </div>
+              <div>
+                <dt className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Ledger entry hash</dt>
+                <dd className="mt-1">
+                  <HashText value={result.ledger_entry_hash || '—'} />
+                </dd>
+              </div>
+            </dl>
+            <Button variant="outline" className="mt-6" onClick={() => downloadJson('verification-report.json', result)}>
+              Download JSON verification report
+            </Button>
+          </div>
+        </Panel>
+      ) : null}
+    </AppShell>
+  )
 }
