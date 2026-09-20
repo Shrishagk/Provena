@@ -43,16 +43,25 @@ def _http_error(status: int, message: str) -> HTTPException:
     return HTTPException(status_code=status, detail=message)
 
 
+_MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
+
+
 async def _read_text(upload: UploadFile, label: str) -> str:
+    raw = await upload.read()
+    if len(raw) > _MAX_UPLOAD_BYTES:
+        raise _http_error(413, f"{label} exceeds the maximum allowed size")
     try:
-        return (await upload.read()).decode("utf-8")
+        return raw.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise _http_error(422, f"{label} must be a UTF-8 text file") from exc
 
 
 async def _read_envelope(upload: UploadFile) -> dict:
+    raw = await upload.read()
+    if len(raw) > _MAX_UPLOAD_BYTES:
+        raise _http_error(413, "encrypted package exceeds the maximum allowed size")
     try:
-        return json.loads((await upload.read()).decode("utf-8"))
+        return json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise _http_error(422, "encrypted package is not valid JSON") from exc
 
@@ -63,7 +72,11 @@ def _artifact_path(suffix: str) -> tuple[str, Path]:
 
 
 def _load_private(recipient_id: str) -> dict:
-    path = KEYS / f"{recipient_id}.private.json"
+    if not recipient_id.isidentifier():
+        raise _http_error(400, "invalid recipient identifier")
+    path = (KEYS / f"{recipient_id}.private.json").resolve()
+    if not str(path).startswith(str(KEYS.resolve())):
+        raise _http_error(400, "invalid recipient identifier")
     if not path.is_file():
         raise _http_error(404, "unknown recipient identity")
     return json.loads(path.read_text(encoding="utf-8"))
@@ -177,7 +190,9 @@ def download(artifact_id: str):
     matches = list(ARTIFACTS.glob(f"{artifact_id}.*"))
     if len(matches) != 1:
         raise _http_error(404, "artifact not found")
-    path = matches[0]
+    path = matches[0].resolve()
+    if not str(path).startswith(str(ARTIFACTS.resolve())):
+        raise _http_error(404, "artifact not found")
     media_type = "application/json" if path.suffix == ".json" else "text/plain; charset=utf-8"
     return FileResponse(path, media_type=media_type, filename=path.name)
 

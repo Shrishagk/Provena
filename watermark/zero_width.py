@@ -26,8 +26,10 @@ def _frame(token: bytes) -> str:
 
 def embed(text: str, token: bytes) -> str:
     """Append invisible code points; rendered text remains exactly the same."""
+    # Strip any pre-existing watermark characters to prevent extraction ambiguity
+    cleaned = text.replace(ZERO, "").replace(ONE, "")
     bits = _frame(token) * COPIES
-    return text + "".join(ZERO if bit == "0" else ONE for bit in bits)
+    return cleaned + "".join(ZERO if bit == "0" else ONE for bit in bits)
 
 
 def extract(text: str) -> str | None:

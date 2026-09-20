@@ -65,9 +65,11 @@ def append_quorum(record: dict, recipient_signature: str, urls: list[str] = DEFA
 
 
 def lookup_all(token: str, urls: list[str] = DEFAULT_NODES) -> list[tuple[str, dict]]:
+    from urllib.parse import quote
+    safe_token = quote(token, safe="")
     found = []
     for url in urls:
-        try: found.append((url, _request(url + "/lookup/" + token)))
+        try: found.append((url, _request(url + "/lookup/" + safe_token)))
         except ConnectionError: pass
     return found
 

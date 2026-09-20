@@ -27,6 +27,8 @@ def _wrap_key(shared_secret: bytes) -> bytes:
 
 
 def encrypt_document(document: bytes, recipient_kem_keys: dict[str, bytes]) -> dict:
+    if not recipient_kem_keys:
+        raise ValueError("at least one recipient is required")
     content_key, content_nonce = os.urandom(32), os.urandom(12)
     ciphertext = AESGCM(content_key).encrypt(content_nonce, document, b"pq-forensic-v1")
     recipients: dict[str, dict[str, str]] = {}

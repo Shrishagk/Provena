@@ -14,7 +14,8 @@ from ledger.chain import LedgerNode
 def load_node(base: Path, node_id: str) -> LedgerNode:
     private = json.loads((base / "keys" / f"{node_id}.private.json").read_text(encoding="utf-8"))
     registry = json.loads((base / "keys" / "ledger_nodes.json").read_text(encoding="utf-8"))
-    keyring = json.loads((base / "keys" / "keyring.json").read_text(encoding="utf-8"))
+    from identity.keyring import load_verified_keyring
+    keyring = load_verified_keyring(base / "keys" / "keyring.json")
     publics = {name: unb64(item["sign_public_key"]) for name, item in registry["nodes"].items()}
     recipients = {name: unb64(item["sign_public_key"]) for name, item in keyring["recipients"].items()}
     return LedgerNode(node_id, base / "data" / f"{node_id}.sqlite3", unb64(private["secret_key"]), publics, recipients)

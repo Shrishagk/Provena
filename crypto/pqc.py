@@ -63,7 +63,10 @@ def sign(secret_key: bytes, message: bytes) -> bytes:
 
 
 def verify(public_key: bytes, message: bytes, signature: bytes) -> bool:
-    if oqs is None:
-        return ML_DSA_65.verify(public_key, message, signature)
-    with oqs.Signature("ML-DSA-65") as signer:
-        return signer.verify(message, signature, public_key)
+    try:
+        if oqs is None:
+            return ML_DSA_65.verify(public_key, message, signature)
+        with oqs.Signature("ML-DSA-65") as signer:
+            return signer.verify(message, signature, public_key)
+    except Exception:
+        return False

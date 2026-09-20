@@ -33,7 +33,9 @@ class LedgerNode:
             conn.execute("CREATE TABLE IF NOT EXISTS entries (idx INTEGER PRIMARY KEY, token TEXT UNIQUE NOT NULL, entry_json TEXT NOT NULL, entry_hash TEXT NOT NULL)")
 
     def _connect(self) -> sqlite3.Connection:
-        return sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("PRAGMA journal_mode=WAL")
+        return conn
 
     def tip(self) -> tuple[int, str]:
         with self._connect() as conn:
@@ -114,5 +116,5 @@ class LedgerNode:
 def compare_replicas(nodes: list[LedgerNode]) -> dict:
     checks = [node.verify_chain() for node in nodes]
     valid_tips = [check["tip"] for check in checks if check["valid"]]
-    agreement = len(valid_tips) >= 2 and max(valid_tips.count(tip) for tip in set(valid_tips)) >= 2
+    agreement = len(valid_tips) >= 2 and max((valid_tips.count(tip) for tip in set(valid_tips)), default=0) >= 2
     return {"replicas": checks, "quorum_agreement": agreement}
