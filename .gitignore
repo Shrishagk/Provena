@@ -2,8 +2,11 @@
 __pycache__/
 *.pyc
 keys/*.private.json
+keys/org_root_private.json
+keys/org_root_public.json
 keys/keyring.json
 keys/ledger_nodes.json
+keys/demo_node_vault.json
 data/*.sqlite3
 data/*.pqe.json
 data/*_copy.txt

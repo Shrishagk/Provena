@@ -24,10 +24,17 @@ def entry_hash(entry: dict) -> str:
 
 
 class LedgerNode:
-    def __init__(self, node_id: str, db_path: str | Path, secret_key: bytes, node_public_keys: dict[str, bytes], recipient_public_keys: dict[str, bytes] | None = None):
+    def __init__(self, node_id: str, db_path: str | Path, secret_key: bytes,
+                 node_public_keys: dict[str, bytes], recipient_public_keys: dict[str, bytes] | None = None,
+                 node_administrator_domains: dict[str, str] | None = None,
+                 allow_single_administrator_demo: bool = False):
         self.node_id, self.db_path, self.secret_key = node_id, Path(db_path), secret_key
         self.node_public_keys = node_public_keys
         self.recipient_public_keys = recipient_public_keys or {}
+        self.node_administrator_domains = node_administrator_domains or {
+            node_name: node_name for node_name in node_public_keys
+        }
+        self.allow_single_administrator_demo = allow_single_administrator_demo
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as conn:
             conn.execute("CREATE TABLE IF NOT EXISTS entries (idx INTEGER PRIMARY KEY, token TEXT UNIQUE NOT NULL, entry_json TEXT NOT NULL, entry_hash TEXT NOT NULL)")
@@ -48,6 +55,32 @@ class LedgerNode:
         return {**payload, "node_id": self.node_id, "proposal_hash": proposal_hash(payload),
                 "node_signature": b64(sign(self.secret_key, canonical_json(payload)))}
 
+    def _valid_cosigners(self, payload: dict, cosigs: dict) -> set[str]:
+        if not isinstance(cosigs, dict):
+            return set()
+        valid: set[str] = set()
+        for node_id, signature in cosigs.items():
+            if node_id not in self.node_public_keys or not isinstance(signature, str):
+                continue
+            try:
+                if verify(self.node_public_keys[node_id], canonical_json(payload), unb64(signature)):
+                    valid.add(node_id)
+            except (TypeError, ValueError):
+                continue
+        return valid
+
+    def _has_required_quorum(self, payload: dict, cosigs: dict) -> bool:
+        valid = self._valid_cosigners(payload, cosigs)
+        if len(valid) < 2:
+            return False
+        if self.allow_single_administrator_demo:
+            return True
+        # Node identities do not by themselves create independent witnesses.
+        # At least two co-signatures must come from separately administered
+        # domains recorded in the root-signed node registry.
+        domains = {self.node_administrator_domains.get(node_id) for node_id in valid}
+        return None not in domains and len(domains) >= 2
+
     def commit(self, entry: dict) -> str:
         last_index, actual_tip = self.tip()
         if entry["index"] != last_index + 1 or entry["prev_hash"] != actual_tip:
@@ -61,10 +94,10 @@ class LedgerNode:
             self.recipient_public_keys[recipient_id], canonical_json(entry["record"]), unb64(entry["recipient_signature"])):
             raise ValueError("invalid recipient ML-DSA signature")
         cosigs = entry.get("node_cosignatures", {})
-        valid = [node_id for node_id, signature in cosigs.items() if node_id in self.node_public_keys and
-                 verify(self.node_public_keys[node_id], canonical_json(payload), unb64(signature))]
-        if len(set(valid)) < 2:
-            raise ValueError("entry lacks two valid node co-signatures")
+        if not self._has_required_quorum(payload, cosigs):
+            if self.allow_single_administrator_demo:
+                raise ValueError("entry lacks two valid node co-signatures")
+            raise ValueError("entry lacks a two-domain independently administered node quorum")
         digest = entry_hash(entry)
         if entry.get("entry_hash") != digest:
             raise ValueError("incorrect entry hash")
@@ -97,10 +130,8 @@ class LedgerNode:
                 break
             payload = proposal_payload(entry["index"], entry["record"], entry["recipient_signature"], entry["prev_hash"])
             cosigs = entry.get("node_cosignatures", {})
-            valid_cosigs = [node_id for node_id, signature in cosigs.items() if node_id in self.node_public_keys and verify(
-                self.node_public_keys[node_id], canonical_json(payload), unb64(signature))]
-            if len(set(valid_cosigs)) < 2:
-                errors.append(f"invalid node quorum at index {expected_index}")
+            if not self._has_required_quorum(payload, cosigs):
+                errors.append(f"invalid independently administered node quorum at index {expected_index}")
                 break
             recipient_id = entry["record"].get("recipient_id")
             if recipient_id not in self.recipient_public_keys or not verify(
@@ -108,7 +139,9 @@ class LedgerNode:
                 errors.append(f"invalid recipient signature at index {expected_index}")
                 break
             previous = digest
-        return {"node_id": self.node_id, "valid": not errors, "tip": previous, "entries": count, "errors": errors}
+        return {"node_id": self.node_id, "valid": not errors, "tip": previous, "entries": count,
+                "errors": errors, "administrator_domain": self.node_administrator_domains.get(self.node_id),
+                "independently_administered": not self.allow_single_administrator_demo}
 
 
 def compare_replicas(nodes: list[LedgerNode]) -> dict:

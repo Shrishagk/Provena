@@ -6,6 +6,7 @@ import { Download, LockKeyhole, Users } from 'lucide-react'
 import { AppShell, HashText, PageIntro, Panel } from '@/components/app-shell'
 import { Button } from '@/components/ui/button'
 import { UploadZone } from '@/components/upload-zone'
+import { useEncryptWorkflow } from '@/components/workflow-state'
 import { downloadText, encryptDocument, getRecipients, type Recipient } from '@/lib/api'
 
 const steps = [
@@ -15,21 +16,21 @@ const steps = [
 ]
 
 export default function EncryptPage() {
-  const [file, setFile] = useState<File | null>(null)
   const [recipients, setRecipients] = useState<Recipient[]>([])
-  const [selected, setSelected] = useState<string[]>([])
-  const [result, setResult] = useState<Awaited<ReturnType<typeof encryptDocument>> | null>(null)
+  const { file, selected, result, sourceFile, hydrated, setFile, setResult, setSelected } = useEncryptWorkflow()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
+    if (!hydrated) return
+
     getRecipients()
       .then(({ recipients }) => {
         setRecipients(recipients)
-        setSelected(recipients.slice(0, 2).map((recipient) => recipient.id))
+        setSelected((current) => current.length ? current : recipients.slice(0, 2).map((recipient) => recipient.id))
       })
       .catch(() => setError('Gateway unavailable: recipients could not be loaded.'))
-  }, [])
+  }, [hydrated, setSelected])
 
   async function submit() {
     if (!file || !selected.length) return
@@ -55,6 +56,11 @@ export default function EncryptPage() {
       <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
         <Panel title="Source document" description="UTF-8 text documents only">
           <UploadZone label="Drop source .txt document" file={file} onFile={setFile} />
+          {!file && sourceFile ? (
+            <p className="mt-3 text-xs text-muted-foreground">
+              Previous source: {sourceFile.name} ({(sourceFile.size / 1024).toFixed(1)} KB). Choose it again only to create a new package.
+            </p>
+          ) : null}
 
           <fieldset className="mt-6">
             <legend className="mb-3 inline-flex items-center gap-2 text-sm font-medium">

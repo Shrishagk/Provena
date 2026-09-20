@@ -1,10 +1,7 @@
-"""Local FastAPI gateway consumed by the Next.js control-plane UI.
+"""Local gateway for encryption, tracing, and public key discovery.
 
-This *demo* gateway loads recipient private keys from its local filesystem in
-order to make the browser workflow runnable. A signature made through this
-endpoint proves only that the gateway-held key signed the record; it does not
-provide recipient non-repudiation. The recipient-side CLI is the supported
-workflow when a recipient controls their own key material.
+Recipient private keys are intentionally not loaded here. Browser decryption
+is performed by ``api.recipient_agent`` on the keyholder's own device.
 """
 from __future__ import annotations
 
@@ -12,7 +9,6 @@ import json
 import os
 import uuid
 from collections import Counter
-from datetime import datetime, timezone
 from pathlib import Path
 
 from localdeps import ensure_local_dependencies
@@ -22,21 +18,22 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
-from crypto.envelope import decrypt_document, encrypt_document
-from crypto.pqc import sign, verify
-from identity.keyring import b64, canonical_json, load_verified_keyring, unb64
-from ledger.client import DEFAULT_NODES, append_quorum, lookup_all, verify_all
-from watermark.zero_width import embed, extract
+from crypto.envelope import encrypt_document
+from crypto.pqc import verify
+from identity.keyring import canonical_json, load_root_public_key, load_verified_keyring, unb64
+from ledger.client import lookup_all, verify_all
+from watermark.zero_width import extract
 
 BASE = Path(os.environ.get("FORENSIC_BASE_DIR", Path(__file__).resolve().parents[1])).resolve()
 KEYS = BASE / "keys"
+ROOT_PUBLIC_KEY_PATH = Path(os.environ.get("FORENSIC_ROOT_PUBLIC_KEY_PATH", KEYS / "org_root_public.json")).resolve()
 ARTIFACTS = BASE / "data" / "artifacts"
 ARTIFACTS.mkdir(parents=True, exist_ok=True)
 NODE_IDS = ("node1", "node2", "node3")
 TRUST_BOUNDARY = {
-    "mode": "gateway-custody-demo",
-    "recipient_private_keys": "loaded by the gateway from its local filesystem",
-    "recipient_non_repudiation": False,
+    "mode": "recipient-local-key-custody",
+    "recipient_private_keys": "never loaded by the gateway; held by the recipient-local agent",
+    "recipient_non_repudiation": "key-custody evidence; hardware-backed keys and identity controls are required for a legal non-repudiation claim",
     "replica_deployment": "three local services on one host by default",
     "independent_administration": False,
 }
@@ -71,36 +68,51 @@ def _artifact_path(suffix: str) -> tuple[str, Path]:
     return artifact_id, ARTIFACTS / f"{artifact_id}{suffix}"
 
 
-def _load_private(recipient_id: str) -> dict:
-    path = KEYS / f"{recipient_id}.private.json"
-    if not path.is_file():
-        raise _http_error(404, "unknown recipient identity")
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
 def _ledger_status() -> dict:
     replies = {result["node_id"]: result for _, result in verify_all()}
     replicas = [{"node_id": node_id, "online": node_id in replies, **replies.get(node_id, {})} for node_id in NODE_IDS]
     valid_tips = [item["tip"] for item in replicas if item.get("online") and item.get("valid")]
     counts = Counter(valid_tips)
     quorum = bool(counts and counts.most_common(1)[0][1] >= 2)
-    return {"quorum_agreement": quorum, "replicas": replicas}
+    single_host_demo = any(item.get("single_administrator_demo") for item in replicas if item.get("online"))
+    return {"quorum_agreement": quorum, "replicas": replicas,
+            "independently_administered": quorum and not single_host_demo,
+            "single_administrator_demo": single_host_demo}
+
+
+def _keyring() -> dict:
+    return load_verified_keyring(KEYS / "keyring.json", load_root_public_key(ROOT_PUBLIC_KEY_PATH))
+
+
+def _trust_boundary(ledger: dict | None = None) -> dict:
+    """Describe the live ledger deployment rather than overclaiming quorum."""
+    ledger = ledger or _ledger_status()
+    independently_administered = bool(ledger["independently_administered"])
+    return {
+        **TRUST_BOUNDARY,
+        "replica_deployment": (
+            "root-signed replicas reporting an independently administered quorum"
+            if independently_administered else "single-administrator demo or no independently administered quorum"
+        ),
+        "independent_administration": independently_administered,
+    }
 
 
 @app.get("/api/v1/health")
 def health() -> dict:
-    return {"service": "forensic-watermarking-gateway", "ledger": _ledger_status(), "trust_boundary": TRUST_BOUNDARY}
+    ledger = _ledger_status()
+    return {"service": "forensic-watermarking-gateway", "ledger": ledger, "trust_boundary": _trust_boundary(ledger)}
 
 
 @app.get("/api/v1/system/trust-boundary")
 def trust_boundary() -> dict:
     """Return explicit, machine-readable demo assurance limits for the UI."""
-    return TRUST_BOUNDARY
+    return _trust_boundary()
 
 
 @app.get("/api/v1/recipients")
 def recipients() -> dict:
-    keyring = load_verified_keyring(KEYS / "keyring.json")
+    keyring = _keyring()
     return {"recipients": [{"id": recipient_id, "display_name": recipient_id.replace("_", " ").title()}
                            for recipient_id in keyring["recipients"]]}
 
@@ -114,7 +126,7 @@ async def encrypt(document: UploadFile = File(...), recipients: str = Form(...))
         raise _http_error(422, "recipients must be a JSON array") from exc
     if not isinstance(selected, list) or not selected or not all(isinstance(value, str) for value in selected):
         raise _http_error(422, "select at least one recipient")
-    keyring = load_verified_keyring(KEYS / "keyring.json")
+    keyring = _keyring()
     if len(set(selected)) != len(selected) or any(value not in keyring["recipients"] for value in selected):
         raise _http_error(422, "recipient selection contains an unknown identity")
     public_keys = {recipient_id: unb64(keyring["recipients"][recipient_id]["kem_public_key"]) for recipient_id in selected}
@@ -125,34 +137,6 @@ async def encrypt(document: UploadFile = File(...), recipients: str = Form(...))
             "recipient_count": len(selected), "download_url": f"/api/v1/download/{artifact_id}"}
 
 
-@app.post("/api/v1/decryptions")
-async def decrypt(envelope: UploadFile = File(...), recipient_id: str = Form(...)) -> dict:
-    package = await _read_envelope(envelope)
-    private = _load_private(recipient_id)
-    try:
-        plaintext = decrypt_document(package, recipient_id, unb64(private["kem_secret_key"])).decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise _http_error(422, "prototype watermarking supports UTF-8 text documents only") from exc
-    except ValueError as exc:
-        raise _http_error(
-            422,
-            "encrypted package cannot be authenticated for this recipient; it may be corrupt or was created before recipient keys were regenerated. Encrypt the source document again.",
-        ) from exc
-    token = os.urandom(16)
-    record = {"doc_hash": package["ciphertext_sha256"], "recipient_id": recipient_id,
-              "watermark_session_id": token.hex(), "timestamp": datetime.now(timezone.utc).isoformat()}
-    recipient_signature = b64(sign(unb64(private["sign_secret_key"]), canonical_json(record)))
-    try:
-        committed = append_quorum(record, recipient_signature)
-    except RuntimeError as exc:
-        raise _http_error(503, f"ledger quorum unavailable: {exc}") from exc
-    artifact_id, output = _artifact_path(".txt")
-    output.write_text(embed(plaintext, token), encoding="utf-8")
-    return {"watermarked_copy_url": f"/api/v1/download/{artifact_id}", "watermark_session_id": token.hex(),
-            "ledger_entry_hash": committed["entry"]["entry_hash"], "committed_nodes": committed["committed_nodes"],
-            "assurance": "gateway-custody-demo"}
-
-
 @app.post("/api/v1/leak-trace")
 async def trace(leaked_copy: UploadFile = File(...), envelope: UploadFile = File(...)) -> dict:
     leaked_text, package = await _read_text(leaked_copy, "leaked copy"), await _read_envelope(envelope)
@@ -160,17 +144,23 @@ async def trace(leaked_copy: UploadFile = File(...), envelope: UploadFile = File
     if not token:
         return {"keyring_signature_valid": False, "recipient_ml_dsa_signature_valid": False,
                 "document_ciphertext_binding_valid": False, "ledger_chain_and_quorum_valid": False,
-                "verdict": "NO WATERMARK FOUND", "assurance": "gateway-custody-demo"}
+                "verdict": "NO WATERMARK FOUND", "assurance": "recipient-local-key-custody"}
     matches = lookup_all(token)
     hashes = Counter(entry["entry_hash"] for _, entry in matches)
     if not hashes or hashes.most_common(1)[0][1] < 2:
         return {"watermark_session_id": token, "keyring_signature_valid": False,
                 "recipient_ml_dsa_signature_valid": False, "document_ciphertext_binding_valid": False,
                 "ledger_chain_and_quorum_valid": False, "verdict": "ATTRIBUTION NOT VERIFIED",
-                "assurance": "gateway-custody-demo"}
+                "assurance": "recipient-local-key-custody"}
     entry_hash = hashes.most_common(1)[0][0]
     entry = next(item for _, item in matches if item["entry_hash"] == entry_hash)
-    keyring = load_verified_keyring(KEYS / "keyring.json")
+    try:
+        keyring = _keyring()
+    except (KeyError, ValueError, json.JSONDecodeError):
+        return {"watermark_session_id": token, "keyring_signature_valid": False,
+                "recipient_ml_dsa_signature_valid": False, "document_ciphertext_binding_valid": False,
+                "ledger_chain_and_quorum_valid": False, "verdict": "ATTRIBUTION NOT VERIFIED",
+                "assurance": "recipient-local-key-custody"}
     recipient_id = entry["record"]["recipient_id"]
     recipient = keyring["recipients"].get(recipient_id)
     signature_valid = bool(recipient) and verify(unb64(recipient["sign_public_key"]), canonical_json(entry["record"]), unb64(entry["recipient_signature"]))
@@ -182,7 +172,7 @@ async def trace(leaked_copy: UploadFile = File(...), envelope: UploadFile = File
             "recipient_ml_dsa_signature_valid": signature_valid, "document_ciphertext_binding_valid": binding_valid,
             "ledger_chain_and_quorum_valid": ledger_valid,
             "verdict": "ATTRIBUTION VERIFIED" if verified else "ATTRIBUTION NOT VERIFIED",
-            "assurance": "gateway-custody-demo"}
+            "assurance": "recipient-local-key-custody"}
 
 
 @app.get("/api/v1/ledger/status")

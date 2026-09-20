@@ -1,7 +1,44 @@
 # Run this from the repository root after `python -m identity.setup_keys`.
 # Re-running setup regenerates all signing keys, so replace any node already
 # listening on one of the dedicated local ledger ports.
+param(
+    [string]$NodeKeyDir
+)
+
 $ErrorActionPreference = 'Stop'
+if (-not $NodeKeyDir) {
+    if ($env:FORENSIC_NODE_KEY_DIR) {
+        $NodeKeyDir = $env:FORENSIC_NODE_KEY_DIR
+    } else {
+        $vaultConfig = Join-Path $PSScriptRoot 'keys\demo_node_vault.json'
+        if (Test-Path -LiteralPath $vaultConfig) {
+            try {
+                $configuredVault = Get-Content -LiteralPath $vaultConfig -Raw | ConvertFrom-Json
+                if ($configuredVault.format -eq 'pq-forensic-demo-node-vault-v1' -and
+                    $configuredVault.node_key_dir -is [string] -and $configuredVault.node_key_dir) {
+                    $NodeKeyDir = $configuredVault.node_key_dir
+                }
+            } catch {
+                throw "Could not read the demo node-vault configuration at $vaultConfig. Re-run identity.setup_keys or pass -NodeKeyDir explicitly."
+            }
+        }
+    }
+}
+if (-not $NodeKeyDir) {
+    $NodeKeyDir = Join-Path $env:LOCALAPPDATA 'PQForensicDemo\single-host-node-vault'
+}
+$NodeKeyDir = [System.IO.Path]::GetFullPath($NodeKeyDir)
+
+foreach ($requiredFile in 'keys\keyring.json', 'keys\ledger_nodes.json', 'keys\org_root_public.json') {
+    if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot $requiredFile))) {
+        throw "Missing $requiredFile. Run identity.setup_keys with recipient and root key directories first."
+    }
+}
+foreach ($nodeId in 'node1', 'node2', 'node3') {
+    if (-not (Test-Path -LiteralPath (Join-Path $NodeKeyDir "$nodeId.private.json"))) {
+        throw "Missing $nodeId private key in $NodeKeyDir. Run run_demo.ps1 or set FORENSIC_NODE_KEY_DIR."
+    }
+}
 
 function Stop-ExistingLedgerNode([int]$Port, [string]$NodeId) {
     try {
@@ -23,7 +60,11 @@ function Stop-ExistingLedgerNode([int]$Port, [string]$NodeId) {
 }
 
 function Start-LedgerNode([int]$Port, [string]$NodeId) {
-    Start-Process python -ArgumentList "-m ledger.node --node $NodeId --port $Port" -WorkingDirectory $PSScriptRoot -WindowStyle Hidden
+    # This script intentionally starts all nodes on one machine.  The explicit
+    # flag keeps that limitation visible in node health and prevents this
+    # launcher from being mistaken for a production deployment.
+    $nodeKey = Join-Path $NodeKeyDir "$NodeId.private.json"
+    Start-Process python -ArgumentList "-m ledger.node --node $NodeId --port $Port --node-key-path `"$nodeKey`" --allow-single-administrator-demo" -WorkingDirectory $PSScriptRoot -WindowStyle Hidden
     foreach ($attempt in 1..20) {
         Start-Sleep -Milliseconds 250
         try {

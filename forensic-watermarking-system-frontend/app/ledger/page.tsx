@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { CheckCircle2, RefreshCw, Server, TriangleAlert } from 'lucide-react'
 
-import { AppShell, HashText, PageIntro, Panel, StatusDot } from '@/components/app-shell'
+import { AppShell, HashText, PageIntro, StatusDot } from '@/components/app-shell'
 import { Button } from '@/components/ui/button'
 import { getLedgerStatus, verifyLedger, type LedgerResponse } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -12,12 +12,24 @@ export default function LedgerPage() {
   const [data, setData] = useState<LedgerResponse | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [verificationResult, setVerificationResult] = useState<{
+    quorumAgreement: boolean
+    completedAt: string
+  } | null>(null)
 
   const refresh = async (verify = false) => {
     setBusy(true)
     setError('')
+    if (verify) setVerificationResult(null)
     try {
-      setData(await (verify ? verifyLedger() : getLedgerStatus()))
+      const result = await (verify ? verifyLedger() : getLedgerStatus())
+      setData(result)
+      if (verify) {
+        setVerificationResult({
+          quorumAgreement: result.quorum_agreement,
+          completedAt: new Date().toLocaleTimeString(),
+        })
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Gateway unavailable.')
     } finally {
@@ -104,17 +116,25 @@ export default function LedgerPage() {
         ))}
       </div>
 
-      <Panel title="Quorum model" description="Why 2-of-3 matters" className="mt-6">
-        <p className="max-w-2xl text-sm leading-7 text-muted-foreground">
-          This prototype commits only when two of three local replica services agree on the chain tip and signature
-          set. They provide quorum availability and divergence detection, but are not independently administered in
-          the default single-host deployment.
-        </p>
-        <Button className="mt-5" onClick={() => void refresh(true)} disabled={busy}>
+      <div className="mt-6">
+        <Button onClick={() => void refresh(true)} disabled={busy}>
           <RefreshCw className={busy ? 'animate-spin' : undefined} />
           {busy ? 'Verifying…' : 'Verify ledger integrity'}
         </Button>
-      </Panel>
+        {verificationResult ? (
+          <p
+            role="status"
+            className={cn(
+              'mt-3 text-sm',
+              verificationResult.quorumAgreement ? 'text-success' : 'text-destructive',
+            )}
+          >
+            {verificationResult.quorumAgreement
+              ? `Integrity verified: 2-of-3 quorum confirmed at ${verificationResult.completedAt}.`
+              : `Verification completed at ${verificationResult.completedAt}: replica quorum is not established.`}
+          </p>
+        ) : null}
+      </div>
     </AppShell>
   )
 }

@@ -7,7 +7,7 @@ import { AppShell, HashText, PageIntro, Panel } from '@/components/app-shell'
 import { Button } from '@/components/ui/button'
 import { UploadZone } from '@/components/upload-zone'
 import { cn } from '@/lib/utils'
-import { decryptDocument, downloadText, getRecipients, type Recipient } from '@/lib/api'
+import { decryptDocument, downloadRecipientText, getRecipientAgentIdentity, getRecipients, type Recipient } from '@/lib/api'
 
 const steps = ['Decrypting', 'Generating watermark', 'Signing ML-DSA record', 'Reaching ledger quorum', 'Ready']
 
@@ -20,12 +20,14 @@ export default function DecryptPage() {
   const [error, setError] = useState('')
 
   useEffect(() => {
-    getRecipients()
-      .then(({ recipients }) => {
-        setRecipients(recipients)
-        setRecipient(recipients[0]?.id ?? '')
+    Promise.all([getRecipients(), getRecipientAgentIdentity()])
+      .then(([{ recipients }, agent]) => {
+        const localRecipient = recipients.filter((item) => item.id === agent.recipient_id)
+        if (localRecipient.length !== 1) throw new Error('The local agent identity is not in the gateway’s signed recipient keyring.')
+        setRecipients(localRecipient)
+        setRecipient(agent.recipient_id)
       })
-      .catch(() => setError('Gateway unavailable: identities could not be loaded.'))
+      .catch((cause) => setError(cause instanceof Error ? cause.message : 'Recipient agent unavailable.'))
   }, [])
 
   async function submit() {
@@ -33,7 +35,7 @@ export default function DecryptPage() {
     setBusy(true)
     setError('')
     try {
-      setResult(await decryptDocument(file, recipient))
+      setResult(await decryptDocument(file))
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Decryption failed.')
     } finally {
@@ -46,7 +48,7 @@ export default function DecryptPage() {
       <PageIntro
         eyebrow="Recipient workflow"
         title="Issue a fingerprinted copy."
-        description="Demo mode: the gateway decrypts, renders a marker, signs the record with its locally held recipient key, and commits it to the ledger quorum."
+        description="Your local recipient agent decrypts, watermarks, and signs with its own private key before committing the record to the ledger quorum."
       />
 
       <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
@@ -58,6 +60,7 @@ export default function DecryptPage() {
             id="recipient"
             value={recipient}
             onChange={(event) => setRecipient(event.target.value)}
+            disabled
             className="mb-6 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-3 text-sm"
           >
             {recipients.map((item) => (
@@ -80,7 +83,7 @@ export default function DecryptPage() {
           ) : null}
         </Panel>
 
-        <Panel title="Demo processing" description="Gateway custody means this is not recipient non-repudiation">
+        <Panel title="Recipient-local processing" description="The gateway never receives this recipient’s private keys">
           <ol className="flex flex-col gap-4">
             {steps.map((step, index) => {
               const done = Boolean(result) && index < 4
@@ -124,7 +127,7 @@ export default function DecryptPage() {
             <div>
               <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Committed by</p>
               <p className="mt-2 font-serif text-lg">{result.committed_nodes.join(' · ')}</p>
-              <Button className="mt-5" onClick={() => downloadText(result.watermarked_copy_url)}>
+              <Button className="mt-5" onClick={() => downloadRecipientText(result.watermarked_copy_url)}>
                 <Download />
                 Download fingerprinted copy
               </Button>

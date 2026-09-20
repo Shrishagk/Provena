@@ -43,7 +43,7 @@ export default function TracePage() {
       <PageIntro
         eyebrow="Forensic investigation"
         title="Trace the copy back to a person."
-        description="Compare a leaked text copy with its original distribution package. The gateway verifies record consistency, but gateway-held signing keys cannot prove recipient action."
+        description="Compare a leaked text copy with its original distribution package. The gateway verifies public evidence; recipient private keys remain in the local recipient agent."
       />
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -62,7 +62,7 @@ export default function TracePage() {
           ) : null}
         </Panel>
 
-        <Panel title="Verification evidence" description="All checks are evaluated by the backend; this demo does not provide recipient non-repudiation">
+        <Panel title="Verification evidence" description="All checks are evaluated by the backend; legal non-repudiation still requires hardware-backed identity controls">
           <ul className="flex flex-col gap-3">
             {checks.map(([label, key]) => {
               const valid = result?.[key]

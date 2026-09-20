@@ -16,7 +16,7 @@ def main() -> None:
     parser.add_argument("envelope")
     parser.add_argument("--recipient", required=True)
     parser.add_argument("--output", required=True)
-    parser.add_argument("--key-dir", default="keys")
+    parser.add_argument("--key-dir", required=True, help="recipient-controlled directory containing this recipient's private key")
     parser.add_argument("--nodes", nargs="*", default=DEFAULT_NODES)
     args = parser.parse_args()
     private = json.loads((Path(args.key_dir) / f"{args.recipient}.private.json").read_text(encoding="utf-8"))

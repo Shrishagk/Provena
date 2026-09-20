@@ -55,8 +55,8 @@ export default function Page() {
             <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Private-key custody</p>
             <Activity className="size-4 text-accent" aria-hidden="true" />
           </div>
-          <p className="mt-5 font-serif text-2xl">{trust ? 'Gateway-held demo keys' : 'Checking'}</p>
-          <p className="mt-2 text-xs text-muted-foreground">Not recipient non-repudiation</p>
+          <p className="mt-5 font-serif text-2xl">{trust ? 'Recipient-local keys' : 'Checking'}</p>
+          <p className="mt-2 text-xs text-muted-foreground">Gateway does not load private keys</p>
         </article>
       </div>
 
@@ -85,7 +85,7 @@ export default function Page() {
           <div className="flex items-start gap-3">
             <TriangleAlert className="mt-1 size-5 shrink-0 text-accent" aria-hidden="true" />
             <div className="text-sm leading-6 text-muted-foreground">
-              <p>The browser workflow uses recipient private keys held by the local gateway. Its ML-DSA record is technically valid, but it cannot prove the recipient personally performed the action.</p>
+              <p>The browser workflow sends decryption to a loopback agent on the recipient’s device. The gateway never loads recipient private keys. Hardware-backed keys and identity controls are still needed for a legal non-repudiation claim.</p>
               <p className="mt-3">The three replicas are separate local processes by default, not independently administered organizations. The quorum detects replica disagreement and tolerates one unavailable process; it does not protect against the host administrator.</p>
             </div>
           </div>

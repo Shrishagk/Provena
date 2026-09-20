@@ -40,7 +40,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <Link href="/" className="flex items-center gap-3 rounded-xl focus-visible:ring-2">
               <VaultMark className="size-10" />
               <span>
-                <span className="block font-serif text-xl tracking-tight text-primary">Vaultline</span>
+                <span className="block font-serif text-xl tracking-tight text-primary">Provena</span>
                 <span className="block text-[10px] font-medium uppercase tracking-[0.28em] text-muted-foreground">
                   Forensic archive
                 </span>
